@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Corredores de riesgo de accidente ofídico - Antioquia</title>
+<link rel="stylesheet" href="lib/leaflet/leaflet.css"/>
+<style>
+  html, body { margin:0; padding:0; height:100%; font-family: Arial, Helvetica, sans-serif; }
+  #map { position:absolute; top:0; bottom:0; left:0; right:0; }
+  .panel-title {
+    position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:1000;
+    background:rgba(255,255,255,0.95); padding:10px 20px; border-radius:8px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.25); text-align:center; max-width:880px;
+  }
+  .panel-title h1 { margin:0; font-size:16px; color:#1B5E20; }
+  .panel-title p { margin:4px 0 0; font-size:12px; color:#444; }
+  .legend {
+    background:rgba(255,255,255,0.95); padding:10px 14px; border-radius:8px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.25); font-size:12px; line-height:1.6; color:#333;
+    max-width:220px;
+  }
+  .legend b { display:block; margin-bottom:4px; color:#1B5E20; font-size:13px; }
+  .legend .grp { margin-top:8px; font-weight:bold; color:#333; font-size:11.5px; }
+  .swatch { display:inline-block; width:14px; height:14px; border-radius:3px; margin-right:6px; vertical-align:middle; border:1px solid rgba(255,255,255,0.8); }
+  .pin-urbano { background:none; border:none; }
+  .pin-sw { display:inline-block; width:12px; height:16px; margin-right:7px; vertical-align:middle; }
+  .leaflet-popup-content { font-size:13px; line-height:1.5; }
+  .leaflet-popup-content b { color:#1B5E20; }
+  .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:10px; font-weight:bold; color:white; margin-bottom:4px; }
+  .coord-panel {
+    background:rgba(255,255,255,0.9); padding:4px 10px; border-radius:6px;
+    box-shadow:0 1px 4px rgba(0,0,0,0.25); font-size:11.5px; color:#333;
+    margin-bottom:4px !important; white-space:nowrap;
+  }
+  .leaflet-control-scale-line { background:rgba(255,255,255,0.85); }
+  .credit-panel {
+    background:rgba(255,255,255,0.92); padding:8px 12px; border-radius:8px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.25); font-size:11px; line-height:1.5; color:#444;
+    text-align:right; border-left:3px solid #1B5E20;
+  }
+  .credit-panel b { color:#1B5E20; font-size:12px; }
+  #errorbox { display:none; position:absolute; z-index:2000; top:90px; left:50%; transform:translateX(-50%); background:#fff3cd; border:1px solid #e0a800; padding:12px 18px; border-radius:8px; max-width:560px; font-size:13px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="panel-title">
+  <h1 id="titulo">Corredores geográficos de riesgo de accidente ofídico &mdash; Antioquia</h1>
+  <p>Veredas en corredores intermunicipales confirmados, veredas individuales con 2+ casos, resguardos indígenas confirmados y zonas urbanas con 2+ casos (pin)</p>
+</div>
+<div id="errorbox"></div>
+
+<!-- Datos estáticos (no cambian entre actualizaciones) -->
+<script src="poligonos.js"></script>
+<script src="colindancias.js"></script>
+<script src="referencia.js"></script>
+<!-- Datos del mapa (este es el único archivo que se reemplaza en cada actualización) -->
+<script src="datos.js"></script>
+<script src="nucleo.js"></script>
+<script src="lib/leaflet/leaflet.js"></script>
+<script>
+(function () {
+'use strict';
+
+// ---------- 1. Clasificación (misma lógica que el análisis espacial original; ver nucleo.js) ----------
+var R = Nucleo.clasificar(DATOS, POLIGONOS, COLINDANCIAS, REFERENCIA);
+var feats = R.features, paresMapa = R.paresMapa, paresTodos = R.paresTodos;
+var poligonosData = { type: 'FeatureCollection', features: feats };
+var pines = R.pines || [];
+window.__RESULT = { features: feats, paresMapa: paresMapa, paresTodos: paresTodos, pines: pines };
+
+// ---------- 2. Título ----------
+// El periodo y la fecha de la ultima informacion vienen de datos.js: cambian solos con cada actualizacion
+var periodo = DATOS.periodo || '';
+var fechaTxt = Nucleo.fechaLarga(DATOS.fecha_corte);
+// Encabezado: "año inicial - fecha de la última información" (la semana epidemiológica se ve en el recuadro de créditos).
+// Si datos.js no trae fecha (archivo antiguo), se muestra el periodo tal cual.
+var anioIni = (periodo.match(/^\s*(\d{4})/) || [])[1] || '';
+var rotulo = fechaTxt ? (anioIni ? anioIni + ' - ' : '') + fechaTxt : periodo;
+document.title = 'Corredores de riesgo de accidente ofídico - Antioquia' + (rotulo ? ' (' + rotulo + ')' : '');
+document.getElementById('titulo').textContent = 'Corredores geográficos de riesgo de accidente ofídico \u2014 Antioquia' + (rotulo ? ' (' + rotulo + ')' : '');
+
+// ---------- 3. Mapa (misma presentación que la versión V14) ----------
+var map = L.map('map', { zoomControl: true });
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  attribution: 'Imágenes: Esri, Maxar, Earthstar Geographics | Veredas: DANE 2019 (IDEAM) | Resguardos: ANT | Cabeceras municipales: DANE (DIVIPOLA)',
+  maxZoom: 17
+}).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom: 17, opacity: 0.9
+}).addTo(map);
+
+function colorCorredor(n) { if (n >= 5) return '#7f0000'; if (n >= 3) return '#d7301f'; if (n >= 2) return '#fc8d59'; return '#fee08b'; }
+function colorIndividual(n) { if (n >= 5) return '#084594'; if (n >= 3) return '#4292c6'; return '#9ecae1'; }
+var TIPO_LABEL = {
+  'VEREDA_CORREDOR': { nombre: 'VEREDA (corredor confirmado)', color: '#c1440e' },
+  'VEREDA_INDIVIDUAL': { nombre: 'VEREDA (individual, 2+ casos)', color: '#2166ac' },
+  'RESGUARDO': { nombre: 'RESGUARDO INDÍGENA', color: '#6a3d9a' }
+};
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function popupHtml(p) {
+  var info = TIPO_LABEL[p.tipo_entidad] || { nombre: p.tipo_entidad, color: '#555' };
+  return '<span class="tag" style="background:' + info.color + '">' + info.nombre + '</span><br>' +
+         '<b>' + esc(p.nom_ver) + '</b><br>Municipio: ' + esc(p.nom_mpio) + '<br>Casos reportados: ' + p.casos;
+}
+var poligonosLayer = L.geoJSON(poligonosData, {
+  style: function (f) {
+    var t = f.properties.tipo_entidad;
+    if (t === 'RESGUARDO') return { color: '#ffffff', weight: 2, fillColor: '#6a3d9a', fillOpacity: 0.45, dashArray: '4,3' };
+    if (t === 'VEREDA_INDIVIDUAL') return { color: '#ffffff', weight: 1.2, fillColor: colorIndividual(f.properties.casos), fillOpacity: 0.45 };
+    return { color: '#ffffff', weight: 1.2, fillColor: colorCorredor(f.properties.casos), fillOpacity: 0.42 };
+  },
+  onEachFeature: function (f, layer) {
+    layer.bindPopup(popupHtml(f.properties));
+    var baseWeight = f.properties.tipo_entidad === 'RESGUARDO' ? 2 : 1.2;
+    layer.on('mouseover', function (e) { e.target.setStyle({ weight: baseWeight + 1.8, color: '#ffff00' }); });
+    layer.on('mouseout', function (e) { poligonosLayer.resetStyle(e.target); });
+    layer.on('popupclose', function (e) { poligonosLayer.resetStyle(e.target); });
+  }
+}).addTo(map);
+// ---------- 3b. Zonas urbanas sin poligono: pin en la cabecera municipal (solo las que acumulan 2+ casos) ----------
+function pinIcon(n) {
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="40" viewBox="0 0 28 38"><path d="M14 1C7 1 1.5 6.4 1.5 13.2c0 9.4 12.5 23.3 12.5 23.3s12.5-13.9 12.5-23.3C26.5 6.4 21 1 14 1z" fill="#00838f" stroke="#ffffff" stroke-width="2"/>' +
+            '<circle cx="14" cy="13" r="8.5" fill="#ffffff"/><text x="14" y="17" text-anchor="middle" font-size="11" font-weight="bold" fill="#00838f" font-family="Arial,Helvetica,sans-serif">' + n + '</text></svg>';
+  return L.divIcon({ className: 'pin-urbano', html: svg, iconSize: [30, 40], iconAnchor: [15, 39], popupAnchor: [0, -36] });
+}
+function popupPin(p) {
+  var tag = '<span class="tag" style="background:#00838f">ZONA URBANA (2+ casos)</span><br>';
+  var nota = '<br><small style="color:#666">Ubicaci&oacute;n aproximada: cabecera municipal</small>';
+  if (p.zonas.length === 1) return tag + '<b>' + esc(p.zonas[0].nombre) + '</b><br>Municipio: ' + esc(p.nom_mpio) + '<br>Casos reportados: ' + p.casos + nota;
+  return tag + '<b>Zonas urbanas de ' + esc(p.nom_mpio) + '</b><br>' + p.zonas.map(function (z) { return esc(z.nombre) + ': ' + z.casos + ' casos'; }).join('<br>') + '<br>Casos reportados: ' + p.casos + nota;
+}
+var pinesLayer = L.layerGroup().addTo(map);
+pines.forEach(function (p) {
+  L.marker([p.lat, p.lon], { icon: pinIcon(p.casos), riseOnHover: true, title: p.zonas.map(function (z) { return z.nombre; }).join(', ') + ' (' + p.nom_mpio + ')' }).bindPopup(popupPin(p)).addTo(pinesLayer);
+});
+var limites = feats.length ? poligonosLayer.getBounds() : null;
+pines.forEach(function (p) { if (limites) limites.extend([p.lat, p.lon]); else limites = L.latLngBounds([[p.lat, p.lon], [p.lat, p.lon]]); });
+if (limites && limites.isValid()) map.fitBounds(limites, { padding: [30, 30] });
+else map.setView([6.9, -75.5], 8);
+
+L.control.scale({ position: 'bottomleft', metric: true, imperial: false, maxWidth: 150 }).addTo(map);
+var infoPanel = L.control({ position: 'bottomleft' });
+infoPanel.onAdd = function () { var d = L.DomUtil.create('div', 'coord-panel'); d.innerHTML = 'Mueve el cursor sobre el mapa'; return d; };
+infoPanel.addTo(map);
+map.on('mousemove', function (e) {
+  var panel = document.querySelector('.coord-panel');
+  if (panel) panel.innerHTML = 'Lat: ' + e.latlng.lat.toFixed(5) + ' &nbsp; Lon: ' + e.latlng.lng.toFixed(5);
+});
+
+var credit = L.control({ position: 'topright' });
+credit.onAdd = function () {
+  var d = L.DomUtil.create('div', 'credit-panel');
+  var lineas = DATOS.credito || ['<b>Andy Cano-Botero</b>', 'Practicante de Excelencia, 2026-II', 'Secretaría de Salud e Inclusión Social', 'Gobernación de Antioquia'];
+  d.innerHTML = lineas.join('<br>') + (DATOS.corte ? '<br>Datos al corte: ' + esc(DATOS.corte) : '') + (fechaTxt ? '<br>Informaci&oacute;n hasta el ' + esc(fechaTxt) : '');
+  return d;
+};
+credit.addTo(map);
+
+var legend = L.control({ position: 'bottomright' });
+legend.onAdd = function () {
+  var div = L.DomUtil.create('div', 'legend');
+  div.innerHTML =
+    '<b>Tipos de zona</b>' +
+    '<div class="grp">Corredor confirmado (colinda con una vereda de otro municipio, con casos reportados a ambos lados)</div>' +
+    '<div><span class="swatch" style="background:#fee08b"></span>1 caso</div>' +
+    '<div><span class="swatch" style="background:#fc8d59"></span>2 casos</div>' +
+    '<div><span class="swatch" style="background:#d7301f"></span>3-4 casos</div>' +
+    '<div><span class="swatch" style="background:#7f0000"></span>5 o más casos</div>' +
+    '<div class="grp">Vereda individual (+2 casos, puede estar aislada o colindar con otras veredas pero del mismo municipio)</div>' +
+    '<div><span class="swatch" style="background:#9ecae1"></span>2 casos</div>' +
+    '<div><span class="swatch" style="background:#4292c6"></span>3-4 casos</div>' +
+    '<div><span class="swatch" style="background:#084594"></span>5 o más casos</div>' +
+    '<div class="grp">Otras entidades</div>' +
+    '<div><span class="swatch" style="background:#6a3d9a; border-style:dashed;"></span>Resguardo indígena</div>' +
+    '<div><span class="pin-sw"><svg width="12" height="16" viewBox="0 0 28 38"><path d="M14 1C7 1 1.5 6.4 1.5 13.2c0 9.4 12.5 23.3 12.5 23.3s12.5-13.9 12.5-23.3C26.5 6.4 21 1 14 1z" fill="#00838f"/><circle cx="14" cy="13" r="6" fill="#fff"/></svg></span>Zona urbana con 2+ casos (pin en la cabecera municipal; ubicación aproximada)</div>' +
+    '<div style="color:#666; margin-top:6px;">Clic en cualquier elemento para ver el detalle</div>';
+  return div;
+};
+legend.addTo(map);
+})();
+</script>
+<noscript>Este mapa requiere JavaScript.</noscript>
+</body>
+</html>
