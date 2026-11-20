@@ -328,6 +328,36 @@
     return { casos: casos, resguardos: resguardos, mostrar: mostrar, urbanas: urbanas, total_registros: total };
   }
 
+  // ---------------------------------------------------------------- novedades por corte (recuadro «Novedades» del mapa)
+  // Un corte se nombra «SE 44 de 2026». Las semanas epidemiológicas van de domingo a sábado; la SE 1 es la que deja 4 o más días en enero.
+  function semanasEpi(anio) {
+    function ini(a) { var e = Date.UTC(a, 0, 1), d = new Date(e).getUTCDay(), s = e - d * 864e5; if (d > 3) s += 7 * 864e5; return s; }
+    return Math.round((ini(anio + 1) - ini(anio)) / (7 * 864e5));
+  }
+  function leerCorte(txt) { var m = /SE\s*(\d{1,2})\D+(\d{4})/i.exec(String(txt || '')); return m ? { se: parseInt(m[1], 10), anio: parseInt(m[2], 10) } : null; }
+  function ordenCorte(txt) { var c = leerCorte(txt); return c ? c.anio * 100 + c.se : 0; }
+  // Semanas que cubre un corte desde el anterior: «SE 33 a 44 de 2026»
+  function rangoCorte(corte, anterior) {
+    var c = leerCorte(corte), a = leerCorte(anterior); if (!c) return String(corte || '');
+    if (!a || ordenCorte(anterior) >= ordenCorte(corte)) return 'SE ' + c.se + ' de ' + c.anio;
+    var se = a.se + 1, an = a.anio; if (se > semanasEpi(an)) { se = 1; an++; }
+    if (an === c.anio) return se === c.se ? 'SE ' + se + ' de ' + an : 'SE ' + se + ' a ' + c.se + ' de ' + an;
+    return 'SE ' + se + ' de ' + an + ' a SE ' + c.se + ' de ' + c.anio;
+  }
+  // cortes: [{corte, anterior, fecha, filas:[{cod, ajustada, entidad}]}] → conteos por lugar de los casos que entraron al mapa en cada corte
+  function novedadesDatos(cortes, REF, IX, extra) {
+    return cortes.slice().sort(function (x, y) { return ordenCorte(y.corte) - ordenCorte(x.corte); }).map(function (c) {
+      var d = generarDatos(c.filas || [], REF, IX, extra), n = 0, o = { corte: c.corte, anterior: c.anterior || '', fecha: c.fecha || '' };
+      Object.keys(d.casos).forEach(function (k) { n += d.casos[k]; });
+      Object.keys(d.resguardos).forEach(function (k) { n += d.resguardos[k]; });
+      Object.keys(d.urbanas).forEach(function (k) { n += d.urbanas[k].n; });
+      o.n = n; o.casos = d.casos;
+      if (Object.keys(d.resguardos).length) o.resguardos = d.resguardos;
+      if (Object.keys(d.urbanas).length) o.urbanas = d.urbanas;
+      return o;
+    });
+  }
+
   // Contenido de datos.js (solo conteos por vereda; ningún dato de personas)
   function escribirDatosJs(d, meta) {
     function ord(o) { var r = {}; Object.keys(o || {}).sort().forEach(function (k) { r[k] = o[k]; }); return r; }
@@ -338,10 +368,15 @@
     if (Object.keys(d.mostrar || {}).length) obj.mostrar = ord(d.mostrar);
     if (Object.keys(d.urbanas || {}).length) obj.urbanas = ord(d.urbanas);
     if (meta.credito && meta.credito.length) obj.credito = meta.credito.map(function (t, i) { return i === 0 ? '<b>' + esc(t) + '</b>' : esc(t); });
+    if (d.novedades && d.novedades.length) obj.novedades = d.novedades.map(function (c) {      // casos que entraron al mapa en cada corte (conteos por lugar)
+      var o = { corte: c.corte, anterior: c.anterior, fecha: c.fecha, n: c.n, casos: ord(c.casos) };
+      if (c.resguardos) o.resguardos = ord(c.resguardos); if (c.urbanas) o.urbanas = ord(c.urbanas);
+      return o;
+    });
     return '// DATOS DEL MAPA: solo conteos por vereda (sin datos de personas). Lo regenera actualizador.html\nvar DATOS = ' + JSON.stringify(obj) + ';\n';
   }
 
-  return { parseFecha: parseFecha, fechaMaxima: fechaMaxima, fechaLarga: fechaLarga, ordenFechas: ordenFechas, ENT_URBANA: ENT_URBANA, MIN_CASOS_PIN: MIN_CASOS_PIN, escribirDatosJs: escribirDatosJs, norm: norm, limpiarVereda: limpiarVereda, cyrb53: cyrb53, normId: normId, huellaBase: huellaBase,
+  return { semanasEpi: semanasEpi, leerCorte: leerCorte, ordenCorte: ordenCorte, rangoCorte: rangoCorte, novedadesDatos: novedadesDatos, parseFecha: parseFecha, fechaMaxima: fechaMaxima, fechaLarga: fechaLarga, ordenFechas: ordenFechas, ENT_URBANA: ENT_URBANA, MIN_CASOS_PIN: MIN_CASOS_PIN, escribirDatosJs: escribirDatosJs, norm: norm, limpiarVereda: limpiarVereda, cyrb53: cyrb53, normId: normId, huellaBase: huellaBase,
            parseCSV: parseCSV, mapearColumnas: mapearColumnas, extraerCaso: extraerCaso, COLS_REQUERIDAS: COLS_REQUERIDAS,
            construirIndices: construirIndices, lev: lev, relacion: relacion, sugerencias: sugerencias,
            otrosMunicipios: otrosMunicipios, clasificar: clasificar, generarDatos: generarDatos };
