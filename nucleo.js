@@ -1,4 +1,4 @@
-/* Núcleo compartido del mapa vivo: clasificación de corredores, reconocimiento de veredas y generación de datos.
+/* Núcleo compartido del mapa: clasificación de corredores, reconocimiento de veredas y generación de datos.
    Lo usan index.html (visor) y actualizador.html (actualizador). No contiene datos de personas. */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -8,7 +8,6 @@
 
   // Tipo de entidad que se escribe en la base para casos de zona urbana (sin polígono: se marcan con un pin)
   var ENT_URBANA = 'ZONA URBANA (sin polígono; se marca con pin)';
-  var MIN_CASOS_PIN = 2;   // una zona urbana se marca con pin cuando acumula este número de casos (criterio de vereda individual)
 
   // ---------------------------------------------------------------- utilidades de texto
   function norm(s) {
@@ -262,39 +261,25 @@
       pares.push([a, b]);
       if (POLIGONOS[a][4] === 1 && POLIGONOS[b][4] === 1) { paresMapa++; enCorredor[ka] = 1; enCorredor[kb] = 1; }   // convención del mapa
     });
+    // Capas permanentes del mapa: veredas en corredor (colindan con una vereda de otro municipio y hay casos a ambos lados) y resguardos.
+    // Las demás veredas y las zonas urbanas se ven solo desde el recuadro «Novedades».
     var feats = [];
-    var claves = Object.keys(casos).sort();
-    ['VEREDA_CORREDOR', 'VEREDA_INDIVIDUAL'].forEach(function (tipo) {
-      claves.forEach(function (k) {
-        var t = enCorredor[k] ? 'VEREDA_CORREDOR' : (casos[k] >= 2 ? 'VEREDA_INDIVIDUAL' : null);
-        if (t !== tipo) return;
-        var ix = KEY2IDX[k], p = POLIGONOS[ix], cm = p[0], nm = p[1];
-        if (efectiva[ix] === k) { cm = k.split('|')[0]; nm = (REF.MUN[cm] || [nm])[0]; }       // polígono prestado: municipio oficial
-        feats.push({ type: 'Feature',
-          properties: { cod_mpio: cm, nom_mpio: nm, nom_ver: mostrar[k] || DISPLAY[k] || p[2], casos: casos[k], tipo_entidad: tipo, clave: k },
-          geometry: { type: p[5] === 'P' ? 'Polygon' : 'MultiPolygon', coordinates: p[6] } });
-      });
+    Object.keys(casos).sort().forEach(function (k) {
+      if (!enCorredor[k]) return;
+      var ix = KEY2IDX[k], p = POLIGONOS[ix], cm = p[0], nm = p[1];
+      if (efectiva[ix] === k) { cm = k.split('|')[0]; nm = (REF.MUN[cm] || [nm])[0]; }       // polígono prestado: municipio oficial
+      feats.push({ type: 'Feature',
+        properties: { cod_mpio: cm, nom_mpio: nm, nom_ver: mostrar[k] || DISPLAY[k] || p[2], casos: casos[k], tipo_entidad: 'VEREDA_CORREDOR', clave: k },
+        geometry: { type: p[5] === 'P' ? 'Polygon' : 'MultiPolygon', coordinates: p[6] } });
     });
     REF.RESGUARDOS.forEach(function (r) {
       var n = (datos.resguardos || {})[r.cod + '|' + r.k];
       if (n > 0) feats.push({ type: 'Feature', properties: { cod_mpio: r.cod, nom_mpio: r.mun, nom_ver: r.ver, casos: n, tipo_entidad: 'RESGUARDO', clave: r.cod + '|' + r.k }, geometry: r.geometry });
     });
     feats.forEach(function (f, i) { f.id = String(i); });
-    var cuenta = { VEREDA_CORREDOR: 0, VEREDA_INDIVIDUAL: 0, RESGUARDO: 0 }, suma = { VEREDA_CORREDOR: 0, VEREDA_INDIVIDUAL: 0, RESGUARDO: 0 };
+    var cuenta = { VEREDA_CORREDOR: 0, RESGUARDO: 0 }, suma = { VEREDA_CORREDOR: 0, RESGUARDO: 0 };
     feats.forEach(function (f) { cuenta[f.properties.tipo_entidad]++; suma[f.properties.tipo_entidad] += f.properties.casos; });
-    // Zonas urbanas (sin polígono): un pin por municipio, ubicado en su cabecera (DIVIPOLA), con las zonas que acumulan 2 o más casos
-    var porMun = {}, pocos = 0;
-    Object.keys(datos.urbanas || {}).sort().forEach(function (k) {
-      var u = datos.urbanas[k], cod = k.split('|')[0];
-      if (!(u.n >= MIN_CASOS_PIN)) { pocos += u.n; return; }
-      var cab = (REF.CABECERAS || {})[cod];
-      if (!cab) { pocos += u.n; return; }
-      var m = porMun[cod] || (porMun[cod] = { cod: cod, nom_mpio: (REF.MUN[cod] || [cod])[0], lat: cab[0], lon: cab[1], zonas: [], casos: 0 });
-      m.zonas.push({ nombre: u.nombre, casos: u.n, clave: k }); m.casos += u.n;
-    });
-    var pines = Object.keys(porMun).sort().map(function (c) { return porMun[c]; });
-    cuenta.ZONA_URBANA = pines.length; suma.ZONA_URBANA = pines.reduce(function (a, p) { return a + p.casos; }, 0);
-    return { features: feats, paresMapa: paresMapa, paresTodos: paresTodos, pares: pares, cuenta: cuenta, suma: suma, pines: pines, urbanasSinPin: pocos };
+    return { features: feats, paresMapa: paresMapa, paresTodos: paresTodos, pares: pares, cuenta: cuenta, suma: suma };
   }
 
   // ---------------------------------------------------------------- datos.js a partir de las filas de la base
@@ -395,7 +380,7 @@
     return '// DATOS DEL MAPA: solo conteos por vereda (sin datos de personas). Lo regenera actualizador.html\nvar DATOS = ' + JSON.stringify(obj) + ';\n';
   }
 
-  return { semanasEpi: semanasEpi, leerCorte: leerCorte, ordenCorte: ordenCorte, rangoCorte: rangoCorte, novedadesDatos: novedadesDatos, parseFecha: parseFecha, fechaMaxima: fechaMaxima, fechaLarga: fechaLarga, ordenFechas: ordenFechas, ENT_URBANA: ENT_URBANA, MIN_CASOS_PIN: MIN_CASOS_PIN, escribirDatosJs: escribirDatosJs, norm: norm, limpiarVereda: limpiarVereda, cyrb53: cyrb53, normId: normId, huellaBase: huellaBase,
+  return { semanasEpi: semanasEpi, leerCorte: leerCorte, ordenCorte: ordenCorte, rangoCorte: rangoCorte, novedadesDatos: novedadesDatos, parseFecha: parseFecha, fechaMaxima: fechaMaxima, fechaLarga: fechaLarga, ordenFechas: ordenFechas, ENT_URBANA: ENT_URBANA, escribirDatosJs: escribirDatosJs, norm: norm, limpiarVereda: limpiarVereda, cyrb53: cyrb53, normId: normId, huellaBase: huellaBase,
            parseCSV: parseCSV, mapearColumnas: mapearColumnas, extraerCaso: extraerCaso, COLS_REQUERIDAS: COLS_REQUERIDAS,
            construirIndices: construirIndices, lev: lev, relacion: relacion, sugerencias: sugerencias,
            otrosMunicipios: otrosMunicipios, clasificar: clasificar, generarDatos: generarDatos };

@@ -31,8 +31,6 @@
   .legend.plegada .ley-cuerpo { display:none; }
   .legend .grp { margin-top:8px; font-weight:bold; color:#333; font-size:11.5px; }
   .swatch { display:inline-block; width:14px; height:14px; border-radius:3px; margin-right:6px; vertical-align:middle; border:1px solid rgba(255,255,255,0.8); }
-  .pin-urbano { background:none; border:none; }
-  .pin-sw { display:inline-block; width:12px; height:16px; margin-right:7px; vertical-align:middle; }
   .leaflet-popup-content { font-size:13px; line-height:1.5; }
   .leaflet-popup-content b { color:#1B5E20; }
   .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:10px; font-weight:bold; color:white; margin-bottom:4px; }
@@ -110,10 +108,13 @@
 // ---------- 1. Clasificación (misma lógica que el análisis espacial original; ver nucleo.js) ----------
 var IX = Nucleo.construirIndices(REFERENCIA, POLIGONOS);
 var R = Nucleo.clasificar(DATOS, POLIGONOS, COLINDANCIAS, REFERENCIA, IX);
-var feats = R.features, paresMapa = R.paresMapa, paresTodos = R.paresTodos;
+// De forma permanente solo se dibujan los corredores (veredas de municipios distintos que colindan y tienen casos a ambos lados)
+// y los resguardos con casos. Las demás veredas, los centros poblados y las zonas urbanas se ven al consultar «Novedades y casos por periodo».
+var feats = R.features.filter(function (f) { return f.properties.tipo_entidad === 'VEREDA_CORREDOR' || f.properties.tipo_entidad === 'RESGUARDO'; });
+var paresMapa = R.paresMapa, paresTodos = R.paresTodos;
 var poligonosData = { type: 'FeatureCollection', features: feats };
-var pines = R.pines || [];
-window.__RESULT = { features: feats, paresMapa: paresMapa, paresTodos: paresTodos, pines: pines };
+var PERMANENTES = {}; feats.forEach(function (f) { PERMANENTES[f.properties.clave] = 1; });
+window.__RESULT = { features: feats, paresMapa: paresMapa, paresTodos: paresTodos };
 
 // ---------- 2. Título ----------
 // El periodo y la fecha de la ultima informacion vienen de datos.js: cambian solos con cada actualizacion
@@ -137,10 +138,8 @@ L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/Worl
 }).addTo(map);
 
 function colorCorredor(n) { if (n >= 5) return '#7f0000'; if (n >= 3) return '#d7301f'; if (n >= 2) return '#fc8d59'; return '#fee08b'; }
-function colorIndividual(n) { if (n >= 5) return '#084594'; if (n >= 3) return '#4292c6'; return '#9ecae1'; }
 var TIPO_LABEL = {
   'VEREDA_CORREDOR': { nombre: 'VEREDA (corredor confirmado)', color: '#c1440e' },
-  'VEREDA_INDIVIDUAL': { nombre: 'VEREDA (individual, 2+ casos)', color: '#2166ac' },
   'RESGUARDO': { nombre: 'RESGUARDO INDÍGENA', color: '#6a3d9a' }
 };
 function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -153,7 +152,6 @@ var poligonosLayer = L.geoJSON(poligonosData, {
   style: function (f) {
     var t = f.properties.tipo_entidad;
     if (t === 'RESGUARDO') return { color: '#ffffff', weight: 2, fillColor: '#6a3d9a', fillOpacity: 0.45, dashArray: '4,3' };
-    if (t === 'VEREDA_INDIVIDUAL') return { color: '#ffffff', weight: 1.2, fillColor: colorIndividual(f.properties.casos), fillOpacity: 0.45 };
     return { color: '#ffffff', weight: 1.2, fillColor: colorCorredor(f.properties.casos), fillOpacity: 0.42 };
   },
   onEachFeature: function (f, layer) {
@@ -164,24 +162,7 @@ var poligonosLayer = L.geoJSON(poligonosData, {
     layer.on('popupclose', function (e) { poligonosLayer.resetStyle(e.target); });
   }
 }).addTo(map);
-// ---------- 3b. Zonas urbanas sin poligono: pin en la cabecera municipal (solo las que acumulan 2+ casos) ----------
-function pinIcon(n) {
-  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="40" viewBox="0 0 28 38"><path d="M14 1C7 1 1.5 6.4 1.5 13.2c0 9.4 12.5 23.3 12.5 23.3s12.5-13.9 12.5-23.3C26.5 6.4 21 1 14 1z" fill="#00838f" stroke="#ffffff" stroke-width="2"/>' +
-            '<circle cx="14" cy="13" r="8.5" fill="#ffffff"/><text x="14" y="17" text-anchor="middle" font-size="11" font-weight="bold" fill="#00838f" font-family="Arial,Helvetica,sans-serif">' + n + '</text></svg>';
-  return L.divIcon({ className: 'pin-urbano', html: svg, iconSize: [30, 40], iconAnchor: [15, 39], popupAnchor: [0, -36] });
-}
-function popupPin(p) {
-  var tag = '<span class="tag" style="background:#00838f">ZONA URBANA (2+ casos)</span><br>';
-  var nota = '<br><small style="color:#666">Ubicaci&oacute;n aproximada: cabecera municipal</small>';
-  if (p.zonas.length === 1) return tag + '<b>' + esc(p.zonas[0].nombre) + '</b><br>Municipio: ' + esc(p.nom_mpio) + '<br>Casos reportados: ' + p.casos + nota;
-  return tag + '<b>Zonas urbanas de ' + esc(p.nom_mpio) + '</b><br>' + p.zonas.map(function (z) { return esc(z.nombre) + ': ' + z.casos + ' casos'; }).join('<br>') + '<br>Casos reportados: ' + p.casos + nota;
-}
-var pinesLayer = L.layerGroup().addTo(map);
-pines.forEach(function (p) {
-  L.marker([p.lat, p.lon], { icon: pinIcon(p.casos), riseOnHover: true, title: p.zonas.map(function (z) { return z.nombre; }).join(', ') + ' (' + p.nom_mpio + ')' }).bindPopup(popupPin(p)).addTo(pinesLayer);
-});
 var limites = feats.length ? poligonosLayer.getBounds() : null;
-pines.forEach(function (p) { if (limites) limites.extend([p.lat, p.lon]); else limites = L.latLngBounds([[p.lat, p.lon], [p.lat, p.lon]]); });
 if (limites && limites.isValid()) map.fitBounds(limites, { padding: [30, 30] });
 else map.setView([6.9, -75.5], 8);
 
@@ -215,13 +196,11 @@ legend.onAdd = function () {
     '<div><span class="swatch" style="background:#fc8d59"></span>2 casos</div>' +
     '<div><span class="swatch" style="background:#d7301f"></span>3-4 casos</div>' +
     '<div><span class="swatch" style="background:#7f0000"></span>5 o más casos</div>' +
-    '<div class="grp">Vereda individual (+2 casos, puede estar aislada o colindar con otras veredas pero del mismo municipio)</div>' +
-    '<div><span class="swatch" style="background:#9ecae1"></span>2 casos</div>' +
-    '<div><span class="swatch" style="background:#4292c6"></span>3-4 casos</div>' +
-    '<div><span class="swatch" style="background:#084594"></span>5 o más casos</div>' +
     '<div class="grp">Otras entidades</div>' +
     '<div><span class="swatch" style="background:#6a3d9a; border-style:dashed;"></span>Resguardo indígena</div>' +
-    '<div><span class="pin-sw"><svg width="12" height="16" viewBox="0 0 28 38"><path d="M14 1C7 1 1.5 6.4 1.5 13.2c0 9.4 12.5 23.3 12.5 23.3s12.5-13.9 12.5-23.3C26.5 6.4 21 1 14 1z" fill="#00838f"/><circle cx="14" cy="13" r="6" fill="#fff"/></svg></span>Zona urbana con 2+ casos (pin en la cabecera municipal; ubicación aproximada)</div>' +
+    '<div class="grp">Al consultar «Novedades y casos por periodo»</div>' +
+    '<div><span class="swatch" style="background:rgba(255,0,204,0.3); border:2px solid #ff00cc;"></span>Veredas y centros poblados con casos en el periodo</div>' +
+    '<div><span class="swatch" style="background:#ff00cc; border-radius:50%;"></span>Zona urbana u otro lugar sin polígono (en la cabecera municipal; ubicación aproximada)</div>' +
     '<div style="color:#666; margin-top:6px;">Clic en cualquier elemento para ver el detalle</div>' +
     '</div>';
   var btn = div.querySelector('.ley-btn');
@@ -310,8 +289,9 @@ if (NOV.length) (function () {
     ls.forEach(function (l) {
       var g = geom(l), lay;
       if (g) {
+        var fijo = PERMANENTES[l.k];      // corredores y resguardos ya tienen relleno: solo se les marca el borde
         L.geoJSON(g, { style: { color: '#ffffff', weight: 5, opacity: 0.9, fill: false }, interactive: false }).addTo(capa);
-        lay = L.geoJSON(g, { style: { color: '#ff00cc', weight: 2.5, opacity: 1, fill: false } }).addTo(capa);
+        lay = L.geoJSON(g, { style: fijo ? { color: '#ff00cc', weight: 2.5, opacity: 1, fill: false } : { color: '#ff00cc', weight: 2.5, opacity: 1, fillColor: '#ff00cc', fillOpacity: 0.3 } }).addTo(capa);
       } else {
         var cab = (REFERENCIA.CABECERAS || {})[l.cod]; if (!cab) return;
         lay = L.circleMarker(cab, { radius: 7, color: '#ffffff', weight: 2, fillColor: '#ff00cc', fillOpacity: 1 }).addTo(capa);
