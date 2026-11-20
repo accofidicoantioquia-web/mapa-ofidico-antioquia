@@ -377,8 +377,6 @@ if (NOV.length) (function () {
       var ses = []; for (var w = 1; w <= Nucleo.semanasEpi(selA); w++) { var mm = mesDeSE(selA, w); if (mm.a === selA && mm.m === selP) ses.push(w); }
       txt = selP ? 'Casos notificados en ' + et + ' (' + (ses.length > 1 ? 'SE ' + ses[0] + ' a ' + ses[ses.length - 1] : 'SE ' + ses[0]) + ').' : '';
     } else { et = String(selA); txt = 'Casos notificados en ' + selA + '.'; }
-    var sinSem = modo === 'semana' || modo === 'mes' ? ((ANIOS[selA] || {}).sinSemana || 0) : 0;
-    if (sinSem) txt += ' ' + plural(sinSem, 'caso', 'casos') + ' de ' + selA + ' sin semana conocida solo ' + (sinSem === 1 ? 'aparece' : 'aparecen') + ' en «Año».';
     ls.forEach(function (l) { (mun[l.cod] = mun[l.cod] || { cod: l.cod, n: 0, ls: [] }).n += l.n; mun[l.cod].ls.push(l); });
     var ms = Object.keys(mun).map(function (k) { return mun[k]; }).sort(function (a, b) { return b.n - a.n || (municipio(a.cod) < municipio(b.cod) ? -1 : 1); });
     res.innerHTML = n ? '<b>' + plural(n, nuevos ? 'caso nuevo' : 'caso', nuevos ? 'casos nuevos' : 'casos') + '</b> en ' + plural(ms.length, 'municipio', 'municipios')
