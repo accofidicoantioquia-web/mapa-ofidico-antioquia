@@ -344,16 +344,33 @@
     if (an === c.anio) return se === c.se ? 'SE ' + se + ' de ' + an : 'SE ' + se + ' a ' + c.se + ' de ' + an;
     return 'SE ' + se + ' de ' + an + ' a SE ' + c.se + ' de ' + c.anio;
   }
-  // cortes: [{corte, anterior, fecha, filas:[{cod, ajustada, entidad}]}] → conteos por lugar de los casos que entraron al mapa en cada corte
+  // cortes: [{corte, anterior, fecha, filas:[{cod, ajustada, entidad, ano, semana}]}] → conteos por lugar de los casos que entraron al mapa en cada corte,
+  // y también por semana epidemiológica de notificación (sem: {'2026-36': {c:{lugar:n}, r:{…}, u:{…}}}; semana 0 = desconocida).
+  // «CARGA INICIAL» (u otro nombre que no sea «SE n de AAAA») reúne los casos que ya estaban antes del primer corte: sirve para ver por semana, mes o año.
   function novedadesDatos(cortes, REF, IX, extra) {
+    function conteos(filas) {
+      var d = generarDatos(filas, REF, IX, extra), o = {};
+      if (Object.keys(d.casos).length) o.c = d.casos;
+      if (Object.keys(d.resguardos).length) o.r = d.resguardos;
+      if (Object.keys(d.urbanas).length) { o.u = {}; Object.keys(d.urbanas).forEach(function (k) { o.u[k] = d.urbanas[k].n; }); }
+      return o;
+    }
     return cortes.slice().sort(function (x, y) { return ordenCorte(y.corte) - ordenCorte(x.corte); }).map(function (c) {
       var d = generarDatos(c.filas || [], REF, IX, extra), n = 0, o = { corte: c.corte, anterior: c.anterior || '', fecha: c.fecha || '' };
+      if (!leerCorte(c.corte)) o.inicial = true;
       Object.keys(d.casos).forEach(function (k) { n += d.casos[k]; });
       Object.keys(d.resguardos).forEach(function (k) { n += d.resguardos[k]; });
       Object.keys(d.urbanas).forEach(function (k) { n += d.urbanas[k].n; });
       o.n = n; o.casos = d.casos;
       if (Object.keys(d.resguardos).length) o.resguardos = d.resguardos;
       if (Object.keys(d.urbanas).length) o.urbanas = d.urbanas;
+      var porSem = {};
+      (c.filas || []).forEach(function (f) {
+        var a = parseInt(f.ano, 10), se = parseInt(f.semana, 10); if (!(a > 1900)) return;
+        var k = a + '-' + (se >= 1 && se <= 53 ? se : 0); (porSem[k] = porSem[k] || []).push(f);
+      });
+      var sem = {}; Object.keys(porSem).forEach(function (k) { var x = conteos(porSem[k]); if (Object.keys(x).length) sem[k] = x; });
+      if (Object.keys(sem).length) o.sem = sem;
       return o;
     });
   }
@@ -370,7 +387,9 @@
     if (meta.credito && meta.credito.length) obj.credito = meta.credito.map(function (t, i) { return i === 0 ? '<b>' + esc(t) + '</b>' : esc(t); });
     if (d.novedades && d.novedades.length) obj.novedades = d.novedades.map(function (c) {      // casos que entraron al mapa en cada corte (conteos por lugar)
       var o = { corte: c.corte, anterior: c.anterior, fecha: c.fecha, n: c.n, casos: ord(c.casos) };
+      if (c.inicial) o.inicial = true;
       if (c.resguardos) o.resguardos = ord(c.resguardos); if (c.urbanas) o.urbanas = ord(c.urbanas);
+      if (c.sem) { o.sem = {}; Object.keys(c.sem).sort().forEach(function (k) { var x = c.sem[k], y = {}; ['c', 'r', 'u'].forEach(function (t) { if (x[t]) y[t] = ord(x[t]); }); o.sem[k] = y; }); }
       return o;
     });
     return '// DATOS DEL MAPA: solo conteos por vereda (sin datos de personas). Lo regenera actualizador.html\nvar DATOS = ' + JSON.stringify(obj) + ';\n';

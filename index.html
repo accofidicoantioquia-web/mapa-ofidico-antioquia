@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Corredores de riesgo de accidente ofídico - Antioquia</title>
+<title>Georreferenciación de accidentes ofídicos a nivel veredal - Antioquia</title>
 <link rel="stylesheet" href="lib/leaflet/leaflet.css"/>
 <style>
   html, body { margin:0; padding:0; height:100%; font-family: Arial, Helvetica, sans-serif; }
@@ -67,7 +67,8 @@
   .nov-modos button { flex:1; border:0; background:#fff; padding:4px 0; font:inherit; cursor:pointer; color:#333; }
   .nov-modos button + button { border-left:1px solid #c9c9c9; }
   .nov-modos button[aria-pressed="true"] { background:#1B5E20; color:#fff; font-weight:bold; }
-  .nov-sel { width:100%; font:inherit; padding:3px 4px; margin-bottom:6px; }
+  .nov-sels { display:flex; gap:6px; margin-bottom:6px; }
+  .nov-sel { flex:1; min-width:0; font:inherit; padding:3px 4px; }
   .nov-res { margin:2px 0 4px; }
   .nov-sub { color:#666; font-size:11px; margin-bottom:6px; }
   .nov-ley { display:flex; align-items:center; gap:6px; color:#555; font-size:11px; margin-bottom:6px; }
@@ -89,7 +90,7 @@
 <body>
 <div id="map"></div>
 <div class="panel-title">
-  <h1 id="titulo">Corredores geográficos de riesgo de accidente ofídico &mdash; Antioquia</h1>
+  <h1 id="titulo">Georreferenciación de accidentes ofídicos a nivel veredal &mdash; Antioquia</h1>
   <p>Esta herramienta es gestionada por el Programa de Zoonosis y Vigilancia Epidemiológica de Eventos de Interés en Salud Pública (Zoonosis), de la Secretaría de Salud e Inclusión Social de Antioquia.</p>
 </div>
 <div id="errorbox"></div>
@@ -122,8 +123,8 @@ var fechaTxt = Nucleo.fechaLarga(DATOS.fecha_corte);
 // Si datos.js no trae fecha (archivo antiguo), se muestra el periodo tal cual.
 var anioIni = (periodo.match(/^\s*(\d{4})/) || [])[1] || '';
 var rotulo = fechaTxt ? (anioIni ? anioIni + ' - ' : '') + fechaTxt : periodo;
-document.title = 'Corredores de riesgo de accidente ofídico - Antioquia' + (rotulo ? ' (' + rotulo + ')' : '');
-document.getElementById('titulo').textContent = 'Corredores geográficos de riesgo de accidente ofídico \u2014 Antioquia' + (rotulo ? ' (' + rotulo + ')' : '');
+document.title = 'Georreferenciación de accidentes ofídicos a nivel veredal - Antioquia' + (rotulo ? ' (' + rotulo + ')' : '');
+document.getElementById('titulo').textContent = 'Georreferenciación de accidentes ofídicos a nivel veredal \u2014 Antioquia' + (rotulo ? ' (' + rotulo + ')' : '');
 
 // ---------- 3. Mapa (misma presentación que la versión V14) ----------
 var map = L.map('map', { zoomControl: true });
@@ -231,44 +232,64 @@ legend.onAdd = function () {
 };
 legend.addTo(map);
 
-// ---------- 4. Novedades: casos que entraron al mapa en cada corte (vienen de datos.js; cambian solas con cada actualización) ----------
+// ---------- 4. Novedades y casos por periodo (vienen de datos.js; cambian solos con cada actualización) ----------
+// Corte: casos que entraron al mapa con cada actualización. Semana, mes y año: casos según la semana epidemiológica de notificación (desde 2022).
 var NOV = (DATOS.novedades || []).filter(function (c) { return c && c.corte; });
 if (NOV.length) (function () {
   var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-  var MIN = { de: 1, del: 1, la: 1, las: 1, los: 1, y: 1, el: 1, en: 1 };
+  var MIN = { de: 1, del: 1, la: 1, las: 1, los: 1, y: 1, el: 1, en: 1 }, DIA = 864e5;
   function bonito(t) { return String(t || '').toLowerCase().split(' ').map(function (w, i) { if (!w || (i > 0 && MIN[w])) return w; var k = w.charAt(0) === '(' ? 1 : 0; return w.slice(0, k) + w.charAt(k).toUpperCase() + w.slice(k + 1); }).join(' '); }
   function plural(n, a, b) { return n + ' ' + (n === 1 ? a : b); }
-  function finSE(c) { var x = Nucleo.leerCorte(c.corte); if (!x) return null; var e = Date.UTC(x.anio, 0, 1), d = new Date(e).getUTCDay(), s = e - d * 864e5; if (d > 3) s += 7 * 864e5; return new Date(s + ((x.se - 1) * 7 + 6) * 864e5).toISOString().slice(0, 10); }
-  function fechaDe(c) { return /^\d{4}-\d{2}-\d{2}$/.test(c.fecha || '') ? c.fecha : finSE(c); }
+  function inicioSE1(a) { var e = Date.UTC(a, 0, 1), d = new Date(e).getUTCDay(), s = e - d * DIA; if (d > 3) s += 7 * DIA; return s; }
+  function diaSE(a, se, d) { return new Date(inicioSE1(a) + ((se - 1) * 7 + d) * DIA); }       // d: 0 = domingo … 6 = sábado
+  function mesDeSE(a, se) { var x = diaSE(a, se, 3); return { a: x.getUTCFullYear(), m: x.getUTCMonth() + 1 }; }   // el mes donde cae la mayoría de sus días
+  function fechasSE(a, se) {
+    var i = diaSE(a, se, 0), f = diaSE(a, se, 6), t = function (x, conAnio) { return x.getUTCDate() + ' de ' + MESES[x.getUTCMonth()] + (conAnio ? ' de ' + x.getUTCFullYear() : ''); };
+    if (i.getUTCFullYear() !== f.getUTCFullYear()) return t(i, true) + ' al ' + t(f, true);
+    return (i.getUTCMonth() === f.getUTCMonth() ? i.getUTCDate() : t(i, false)) + ' al ' + t(f, true);
+  }
   function rango(c) { return Nucleo.rangoCorte(c.corte, c.anterior); }
   var MOSTRAR = DATOS.mostrar || {}, DISPLAY = {}; (REFERENCIA.DISPLAY || []).forEach(function (e) { DISPLAY[e[0] + '|' + e[1]] = e[2]; });
   var RESG = {}; (REFERENCIA.RESGUARDOS || []).forEach(function (r) { RESG[r.cod + '|' + r.k] = r; });
+  var NOMURB = {}; Object.keys(DATOS.urbanas || {}).forEach(function (k) { NOMURB[k] = DATOS.urbanas[k].nombre; });
+  NOV.forEach(function (c) { Object.keys(c.urbanas || {}).forEach(function (k) { if (!NOMURB[k]) NOMURB[k] = c.urbanas[k].nombre; }); });
   function municipio(cod) { return bonito((REFERENCIA.MUN[cod] || [cod])[0]); }
   function nombre(l) {
-    if (l.tipo === 'urbana') return 'Zona urbana: ' + bonito(l.nombre || l.k.split('|')[1]);
+    if (l.tipo === 'urbana') return 'Zona urbana: ' + bonito(NOMURB[l.k] || l.k.split('|')[1]);
     if (l.tipo === 'resguardo') return bonito(RESG[l.k] ? RESG[l.k].ver : l.k.split('|')[1]);
     var i = IX.KEY2IDX[l.k]; return bonito(MOSTRAR[l.k] || DISPLAY[l.k] || (i !== undefined ? POLIGONOS[i][2] : l.k.split('|')[1]));
   }
-  // Grupos que ofrece el selector: cada corte, cada mes (según la fecha de la información) y cada año
-  function grupos(modo) {
-    var out = [], idx = {};
-    NOV.forEach(function (c) {
-      var f = fechaDe(c) || '', x = Nucleo.leerCorte(c.corte), id, et;
-      if (modo === 'corte') { id = c.corte; et = rango(c); }
-      else if (modo === 'mes') { if (!f) return; id = f.slice(0, 7); et = MESES[parseInt(f.slice(5, 7), 10) - 1] + ' de ' + f.slice(0, 4); }
-      else { id = String(x ? x.anio : f.slice(0, 4)); et = id; }
-      if (!idx[id]) { idx[id] = { id: id, et: et, cortes: [] }; out.push(idx[id]); }
-      idx[id].cortes.push(c);
+  // Cortes reales (la carga inicial no es un corte) y casos por semana de notificación (sumando la carga inicial y todos los cortes)
+  var CORTES = NOV.filter(function (c) { return !c.inicial && Nucleo.leerCorte(c.corte); });
+  var SEM = {};
+  NOV.forEach(function (c) {
+    Object.keys(c.sem || {}).forEach(function (k) {
+      var x = c.sem[k], t = SEM[k] || (SEM[k] = { c: {}, r: {}, u: {} });
+      ['c', 'r', 'u'].forEach(function (y) { Object.keys(x[y] || {}).forEach(function (q) { t[y][q] = (t[y][q] || 0) + x[y][q]; }); });
     });
-    return out;     // NOV ya viene del más reciente al más antiguo
+  });
+  function totalDe(b) { var n = 0; ['c', 'r', 'u'].forEach(function (y) { Object.keys(b[y] || {}).forEach(function (q) { n += b[y][q]; }); }); return n; }
+  var ANIOS = {};      // {2024: {semanas:{28:n}, meses:{7:n}, sinSemana:n, n:n}}
+  Object.keys(SEM).forEach(function (k) {
+    var a = parseInt(k.split('-')[0], 10), se = parseInt(k.split('-')[1], 10), n = totalDe(SEM[k]); if (!n) return;
+    var o = ANIOS[a] || (ANIOS[a] = { semanas: {}, meses: {}, sinSemana: 0, n: 0 }); o.n += n;
+    if (!se) { o.sinSemana += n; return; }
+    o.semanas[se] = (o.semanas[se] || 0) + n;
+    var m = mesDeSE(a, se), om = ANIOS[m.a] || (ANIOS[m.a] = { semanas: {}, meses: {}, sinSemana: 0, n: 0 }); om.meses[m.m] = (om.meses[m.m] || 0) + n;
+  });
+  var LISTA_ANIOS = Object.keys(ANIOS).map(Number).sort(function (a, b) { return b - a; });
+  function bucketsDe(modo, a, p) {
+    if (modo === 'corte') { var c = CORTES.filter(function (x) { return x.corte === p; })[0]; if (!c) return []; var u = {}; Object.keys(c.urbanas || {}).forEach(function (k) { u[k] = c.urbanas[k].n; }); return [{ c: c.casos, r: c.resguardos, u: u }]; }
+    return Object.keys(SEM).filter(function (k) {
+      var ka = parseInt(k.split('-')[0], 10), se = parseInt(k.split('-')[1], 10);
+      if (modo === 'anio') return ka === a;
+      if (modo === 'semana') return ka === a && se === p;
+      if (!se) return false; var m = mesDeSE(ka, se); return m.a === a && m.m === p;
+    }).map(function (k) { return SEM[k]; });
   }
-  function lugares(cortes) {
-    var m = {};
-    cortes.forEach(function (c) {
-      Object.keys(c.casos || {}).forEach(function (k) { var o = m['v' + k] || (m['v' + k] = { k: k, tipo: 'vereda', n: 0 }); o.n += c.casos[k]; });
-      Object.keys(c.resguardos || {}).forEach(function (k) { var o = m['r' + k] || (m['r' + k] = { k: k, tipo: 'resguardo', n: 0 }); o.n += c.resguardos[k]; });
-      Object.keys(c.urbanas || {}).forEach(function (k) { var o = m['u' + k] || (m['u' + k] = { k: k, tipo: 'urbana', n: 0, nombre: c.urbanas[k].nombre }); o.n += c.urbanas[k].n; });
-    });
+  function lugares(bs) {
+    var m = {}, T = { c: 'vereda', r: 'resguardo', u: 'urbana' };
+    bs.forEach(function (b) { ['c', 'r', 'u'].forEach(function (y) { Object.keys(b[y] || {}).forEach(function (k) { var o = m[y + k] || (m[y + k] = { k: k, tipo: T[y], n: 0 }); o.n += b[y][k]; }); }); });
     return Object.keys(m).map(function (x) { var o = m[x]; o.cod = o.k.split('|')[0]; o.nom = nombre(o); return o; });
   }
   // Capa de resaltado (solo mientras el recuadro está abierto)
@@ -278,13 +299,13 @@ if (NOV.length) (function () {
     if (l.tipo === 'vereda') { var i = IX.KEY2IDX[l.k]; if (i !== undefined) { var p = POLIGONOS[i]; return { type: p[5] === 'P' ? 'Polygon' : 'MultiPolygon', coordinates: p[6] }; } }
     return null;
   }
-  function popupNov(l, et) {
+  function popupNov(l, et, nuevos) {
     var total = l.tipo === 'vereda' ? DATOS.casos[l.k] : l.tipo === 'resguardo' ? (DATOS.resguardos || {})[l.k] : ((DATOS.urbanas || {})[l.k] || {}).n;
-    return '<span class="tag" style="background:#c2185b">CASOS NUEVOS</span><br><b>' + esc(l.nom) + '</b><br>Municipio: ' + esc(municipio(l.cod)) +
-      '<br>Casos nuevos (' + esc(et) + '): ' + l.n + (total ? '<br>Casos reportados en total: ' + total : '') +
+    return '<span class="tag" style="background:#c2185b">' + (nuevos ? 'CASOS NUEVOS' : 'CASOS DEL PERIODO') + '</span><br><b>' + esc(l.nom) + '</b><br>Municipio: ' + esc(municipio(l.cod)) +
+      '<br>' + (nuevos ? 'Casos nuevos' : 'Casos') + ' (' + esc(et) + '): ' + l.n + (total ? '<br>Casos reportados en total: ' + total : '') +
       (geom(l) ? '' : '<br><small style="color:#666">Ubicaci&oacute;n aproximada: cabecera municipal</small>');
   }
-  function dibujar(ls, et) {
+  function dibujar(ls, et, nuevos) {
     capa.clearLayers();
     ls.forEach(function (l) {
       var g = geom(l), lay;
@@ -295,10 +316,10 @@ if (NOV.length) (function () {
         var cab = (REFERENCIA.CABECERAS || {})[l.cod]; if (!cab) return;
         lay = L.circleMarker(cab, { radius: 7, color: '#ffffff', weight: 2, fillColor: '#ff00cc', fillOpacity: 1 }).addTo(capa);
       }
-      lay.bindPopup(popupNov(l, et)); l.capa = lay;
+      lay.bindPopup(popupNov(l, et, nuevos)); l.capa = lay;
     });
   }
-  function ir(l, et) {
+  function ir(l) {
     var g = geom(l), b = null;
     if (g) b = L.geoJSON(g).getBounds(); else { var cab = (REFERENCIA.CABECERAS || {})[l.cod]; if (cab) b = L.latLngBounds([cab, cab]); }
     if (!b || !b.isValid()) return;
@@ -309,52 +330,81 @@ if (NOV.length) (function () {
     }
   }
 
-  var ctl = L.control({ position: 'topleft' }), raiz, modo = 'corte', sel = null;
+  var ctl = L.control({ position: 'topleft' }), raiz, modo = CORTES.length ? 'corte' : 'anio', selA = null, selP = null;
   ctl.onAdd = function () {
     raiz = L.DomUtil.create('div', 'nov');
     L.DomEvent.disableClickPropagation(raiz); L.DomEvent.disableScrollPropagation(raiz);
-    var u = NOV[0];
+    var u = CORTES[0];
     raiz.innerHTML =
       '<button type="button" class="nov-btn" aria-expanded="false" aria-controls="nov-panel">' +
-        '<span><span class="t">Novedades<span class="largo"> del último corte</span></span><span class="s">' + esc(rango(u)) + '</span></span>' +
-        '<span class="nov-badge">' + (u.n ? u.n + '<span class="largo"> ' + (u.n === 1 ? 'caso nuevo' : 'casos nuevos') + '</span>' : 'sin casos nuevos') + '</span></button>' +
-      '<div class="nov-panel" id="nov-panel" role="region" aria-label="Novedades por corte">' +
-        '<div class="nov-cab"><b>Novedades</b><button type="button" class="nov-x" aria-label="Cerrar novedades">&times;</button></div>' +
-        '<div class="nov-modos" role="group" aria-label="Ver por"><button type="button" data-m="corte" aria-pressed="true">Corte</button><button type="button" data-m="mes" aria-pressed="false">Mes</button><button type="button" data-m="anio" aria-pressed="false">Año</button></div>' +
-        '<select class="nov-sel" aria-label="Periodo"></select>' +
+        (u ? '<span><span class="t">Novedades<span class="largo"> del último corte</span></span><span class="s">' + esc(rango(u)) + '</span></span>' +
+             '<span class="nov-badge">' + (u.n ? u.n + '<span class="largo"> ' + (u.n === 1 ? 'caso nuevo' : 'casos nuevos') + '</span>' : 'sin casos nuevos') + '</span>'
+           : '<span><span class="t">Casos por periodo</span></span>') + '</button>' +
+      '<div class="nov-panel" id="nov-panel" role="region" aria-label="Novedades y casos por periodo">' +
+        '<div class="nov-cab"><b>Novedades y casos por periodo</b><button type="button" class="nov-x" aria-label="Cerrar">&times;</button></div>' +
+        '<div class="nov-modos" role="group" aria-label="Ver por">' + (CORTES.length ? '<button type="button" data-m="corte">Corte</button>' : '') +
+          '<button type="button" data-m="semana">Semana</button><button type="button" data-m="mes">Mes</button><button type="button" data-m="anio">Año</button></div>' +
+        '<div class="nov-sels"><select class="nov-sel nov-sel-a" aria-label="Año"></select><select class="nov-sel nov-sel-p" aria-label="Periodo"></select></div>' +
         '<div class="nov-res"></div><div class="nov-sub"></div>' +
-        '<div class="nov-ley"><i></i>Lugares con casos nuevos (resaltados en el mapa)</div>' +
+        '<div class="nov-ley"><i></i><span></span></div>' +
         '<div class="nov-lista"></div>' +
       '</div>';
     raiz.querySelector('.nov-btn').addEventListener('click', abrir);
     raiz.querySelector('.nov-x').addEventListener('click', cerrar);
     Array.prototype.forEach.call(raiz.querySelectorAll('.nov-modos button'), function (b) {
-      b.addEventListener('click', function () { modo = b.getAttribute('data-m'); sel = null; pintarSelector(); });
+      b.addEventListener('click', function () { modo = b.getAttribute('data-m'); selP = null; pintarSelector(); });
     });
-    raiz.querySelector('.nov-sel').addEventListener('change', function (e) { sel = e.target.value; mostrar(); });
+    raiz.querySelector('.nov-sel-a').addEventListener('change', function (e) { selA = parseInt(e.target.value, 10); selP = null; pintarSelector(); });
+    raiz.querySelector('.nov-sel-p').addEventListener('change', function (e) { selP = modo === 'corte' ? e.target.value : parseInt(e.target.value, 10); mostrar(); });
     return raiz;
   };
   function abrir() { var ya = map.hasLayer(capa); raiz.classList.add('abierto'); raiz.querySelector('.nov-btn').setAttribute('aria-expanded', 'true'); capa.addTo(map); if (!ya) pintarSelector(); }
   function cerrar() { raiz.classList.remove('abierto'); raiz.querySelector('.nov-btn').setAttribute('aria-expanded', 'false'); map.closePopup(); map.removeLayer(capa); }
+  function opciones(sel, ops, valor) {
+    sel.innerHTML = ops.map(function (o) { return '<option value="' + esc(o.v) + '">' + esc(o.t) + '</option>'; }).join('');
+    if (valor != null) sel.value = String(valor);
+  }
   function pintarSelector() {
     Array.prototype.forEach.call(raiz.querySelectorAll('.nov-modos button'), function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-m') === modo ? 'true' : 'false'); });
-    var gs = grupos(modo), s = raiz.querySelector('.nov-sel');
-    s.innerHTML = gs.map(function (g) { return '<option value="' + esc(g.id) + '">' + esc(g.et) + '</option>'; }).join('');
-    if (!sel || !gs.some(function (g) { return g.id === sel; })) sel = gs.length ? gs[0].id : null;
-    s.value = sel || ''; mostrar();
+    var sa = raiz.querySelector('.nov-sel-a'), sp = raiz.querySelector('.nov-sel-p');
+    if (modo === 'corte') {
+      sa.style.display = 'none'; sp.style.display = '';
+      if (!CORTES.some(function (c) { return c.corte === selP; })) selP = CORTES[0].corte;
+      opciones(sp, CORTES.map(function (c) { return { v: c.corte, t: rango(c) }; }), selP);
+    } else {
+      if (LISTA_ANIOS.indexOf(selA) < 0) selA = LISTA_ANIOS[0];
+      sa.style.display = ''; opciones(sa, LISTA_ANIOS.map(function (a) { return { v: a, t: String(a) }; }), selA);
+      var o = ANIOS[selA] || { semanas: {}, meses: {} };
+      if (modo === 'anio') sp.style.display = 'none';
+      else {
+        sp.style.display = '';
+        var lista = Object.keys(modo === 'semana' ? o.semanas : o.meses).map(Number).sort(function (a, b) { return b - a; });
+        if (lista.indexOf(selP) < 0) selP = lista.length ? lista[0] : null;
+        opciones(sp, lista.map(function (x) { return { v: x, t: modo === 'semana' ? 'SE ' + x : MESES[x - 1].charAt(0).toUpperCase() + MESES[x - 1].slice(1) }; }), selP);
+      }
+    }
+    mostrar();
   }
   function mostrar() {
-    var g = grupos(modo).filter(function (x) { return x.id === sel; })[0];
-    var res = raiz.querySelector('.nov-res'), sub = raiz.querySelector('.nov-sub'), lista = raiz.querySelector('.nov-lista');
-    if (!g) { res.textContent = ''; sub.textContent = ''; lista.innerHTML = ''; capa.clearLayers(); return; }
-    var ls = lugares(g.cortes), n = ls.reduce(function (a, l) { return a + l.n; }, 0), mun = {};
+    var res = raiz.querySelector('.nov-res'), sub = raiz.querySelector('.nov-sub'), lista = raiz.querySelector('.nov-lista'), ley = raiz.querySelector('.nov-ley');
+    var nuevos = modo === 'corte', ls = lugares(bucketsDe(modo, selA, selP)), n = ls.reduce(function (a, l) { return a + l.n; }, 0), mun = {}, et, txt, c;
+    if (modo === 'corte') { c = CORTES.filter(function (x) { return x.corte === selP; })[0]; et = rango(c);
+      txt = 'Actualización con datos de la ' + et + (Nucleo.fechaLarga(c.fecha) ? ' (información hasta el ' + Nucleo.fechaLarga(c.fecha) + ')' : '') + '.'; }
+    else if (modo === 'semana') { et = 'SE ' + selP + ' de ' + selA; txt = selP ? 'Casos notificados en la ' + et + ' (del ' + fechasSE(selA, selP) + ').' : ''; }
+    else if (modo === 'mes') {
+      et = selP ? MESES[selP - 1] + ' de ' + selA : String(selA);
+      // semanas del mes: cada semana cuenta en el mes donde cae la mayoría de sus días (su miércoles)
+      var ses = []; for (var w = 1; w <= Nucleo.semanasEpi(selA); w++) { var mm = mesDeSE(selA, w); if (mm.a === selA && mm.m === selP) ses.push(w); }
+      txt = selP ? 'Casos notificados en ' + et + ' (' + (ses.length > 1 ? 'SE ' + ses[0] + ' a ' + ses[ses.length - 1] : 'SE ' + ses[0]) + ').' : '';
+    } else { et = String(selA); txt = 'Casos notificados en ' + selA + '.'; }
+    var sinSem = modo === 'semana' || modo === 'mes' ? ((ANIOS[selA] || {}).sinSemana || 0) : 0;
+    if (sinSem) txt += ' ' + plural(sinSem, 'caso', 'casos') + ' de ' + selA + ' sin semana conocida solo ' + (sinSem === 1 ? 'aparece' : 'aparecen') + ' en «Año».';
     ls.forEach(function (l) { (mun[l.cod] = mun[l.cod] || { cod: l.cod, n: 0, ls: [] }).n += l.n; mun[l.cod].ls.push(l); });
-    var ms = Object.keys(mun).map(function (c) { return mun[c]; }).sort(function (a, b) { return b.n - a.n || (municipio(a.cod) < municipio(b.cod) ? -1 : 1); });
-    var et = modo === 'corte' ? rango(g.cortes[0]) : g.et;
-    res.innerHTML = n ? '<b>' + plural(n, 'caso nuevo', 'casos nuevos') + '</b> en ' + plural(ms.length, 'municipio', 'municipios') : 'En este periodo no entraron casos nuevos al mapa.';
-    sub.textContent = modo === 'corte' ? 'Actualización con datos de la ' + rango(g.cortes[0]) + (Nucleo.fechaLarga(g.cortes[0].fecha) ? ' (información hasta el ' + Nucleo.fechaLarga(g.cortes[0].fecha) + ')' : '') + '.'
-      : (g.cortes.length === 1 ? 'Actualización de ' + g.et + ' con datos de la ' : 'Actualizaciones de ' + g.et + ' con datos de: ') + g.cortes.map(function (c) { return rango(c); }).join('; ') + '.';
-    raiz.querySelector('.nov-ley').style.display = n ? '' : 'none';
+    var ms = Object.keys(mun).map(function (k) { return mun[k]; }).sort(function (a, b) { return b.n - a.n || (municipio(a.cod) < municipio(b.cod) ? -1 : 1); });
+    res.innerHTML = n ? '<b>' + plural(n, nuevos ? 'caso nuevo' : 'caso', nuevos ? 'casos nuevos' : 'casos') + '</b> en ' + plural(ms.length, 'municipio', 'municipios')
+                      : (nuevos ? 'En esta actualización no entraron casos nuevos al mapa.' : 'No hay casos en este periodo.');
+    sub.textContent = txt;
+    ley.style.display = n ? '' : 'none'; ley.querySelector('span').textContent = nuevos ? 'Lugares con casos nuevos (resaltados en el mapa)' : 'Lugares con casos en el periodo (resaltados en el mapa)';
     lista.innerHTML = '';
     ms.forEach(function (m) {
       var d = document.createElement('details'), sm = document.createElement('summary'), ul = document.createElement('ul');
@@ -362,12 +412,12 @@ if (NOV.length) (function () {
       m.ls.sort(function (a, b) { return b.n - a.n || (a.nom < b.nom ? -1 : 1); }).forEach(function (l) {
         var li = document.createElement('li'), b = document.createElement('button');
         b.type = 'button'; b.innerHTML = '<span>' + esc(l.nom) + '</span><span>' + l.n + '</span>';
-        b.title = 'Ver en el mapa'; b.addEventListener('click', function () { ir(l, et); });
+        b.title = 'Ver en el mapa'; b.addEventListener('click', function () { ir(l); });
         li.appendChild(b); ul.appendChild(li);
       });
       d.appendChild(sm); d.appendChild(ul); lista.appendChild(d);
     });
-    dibujar(ls, et);
+    dibujar(ls, et, nuevos);
   }
   ctl.addTo(map);
 })();
